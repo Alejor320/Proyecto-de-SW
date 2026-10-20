@@ -7,7 +7,8 @@ import com.concesionario.rrhh.model.ContratoLaboral;
 import com.concesionario.rrhh.model.Empleado;
 import com.concesionario.rrhh.model.EstadoContrato;
 import com.concesionario.rrhh.model.EstadoEmpleado;
-import com.concesionario.rrhh.model.HorarioLaboral;
+import com.concesionario.rrhh.model.EstadoPermiso;
+import com.concesionario.rrhh.model.PermisoLaboral;
 import com.concesionario.rrhh.model.TipoContrato;
 import com.concesionario.rrhh.repository.RecursosHumanosRepository;
 
@@ -18,7 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-/** Reglas de negocio de Recursos Humanos: CU-RH-01, CU-RH-02 y CU-RH-03. */
+/** Reglas de negocio de Recursos Humanos: CU-RH-01, CU-RH-03 y CU-RH-04. */
 public class RecursosHumanosService {
 
     private static final Pattern DOCUMENTO = Pattern.compile("\\d{5,15}");
@@ -60,7 +61,7 @@ public class RecursosHumanosService {
     public void eliminarEmpleado(int id) throws SQLException, ValidacionException {
         try (Connection c = ConexionBD.obtener()) {
             if (repository.contarRegistrosAsociados(c, id) > 0) {
-                throw new ValidacionException("No se puede eliminar el empleado porque tiene contratos, horarios "
+                throw new ValidacionException("No se puede eliminar el empleado porque tiene contratos, permisos "
                         + "o está registrado como técnico. Cambie su estado a INACTIVO.");
             }
             repository.eliminarEmpleado(c, id);
@@ -146,49 +147,53 @@ public class RecursosHumanosService {
     }
 
     // =====================================================================
-    // CU-RH-02 Gestionar asignación de horarios laborales
+    // CU-RH-04 Gestionar permisos laborales
     // =====================================================================
 
-    public List<HorarioLaboral> listarHorarios() throws SQLException {
+    public List<PermisoLaboral> listarPermisos() throws SQLException {
         try (Connection c = ConexionBD.obtener()) {
-            return repository.listarHorarios(c);
+            return repository.listarPermisos(c);
         }
     }
 
-    public void guardarHorario(HorarioLaboral h) throws SQLException, ValidacionException {
-        Validar.condicion(h.getIdEmpleado() > 0, "Seleccione un empleado.");
-        Validar.requerido(h.getDia(), "Día");
-        Validar.requerido(h.getHoraInicio(), "Hora de inicio");
-        Validar.requerido(h.getHoraFin(), "Hora de fin");
-        Validar.condicion(h.getHoraFin().isAfter(h.getHoraInicio()), "La hora de fin debe ser posterior a la hora de inicio.");
-
+    public void guardarPermiso(PermisoLaboral p) throws SQLException, ValidacionException {
+        if (p.getId() == 0) {
+            p.setEstado(EstadoPermiso.PENDIENTE);
+        }
+        validarPermiso(p);
         try (Connection c = ConexionBD.obtener()) {
-            Empleado empleado = repository.buscarEmpleadoPorId(c, h.getIdEmpleado())
+            Empleado empleado = repository.buscarEmpleadoPorId(c, p.getIdEmpleado())
                     .orElseThrow(() -> new ValidacionException("El empleado seleccionado no existe."));
-            Validar.condicion(empleado.getEstado() == EstadoEmpleado.ACTIVO,
-                    "Solo se pueden asignar horarios a empleados activos.");
-            for (HorarioLaboral otro : repository.listarHorariosPorEmpleadoYDia(c, h.getIdEmpleado(), h.getDia())) {
-                if (otro.getId() != h.getId() && horariosSeCruzan(h, otro)) {
-                    throw new ValidacionException("El horario se cruza con otro turno del mismo día ("
-                            + otro.getHoraInicio() + " a " + otro.getHoraFin() + ").");
-                }
-            }
-            if (h.getId() == 0) {
-                repository.insertarHorario(c, h);
+            if (p.getId() == 0) {
+                Validar.condicion(empleado.getEstado() == EstadoEmpleado.ACTIVO,
+                        "Solo se pueden registrar permisos para empleados activos.");
+                repository.insertarPermiso(c, p);
             } else {
-                repository.actualizarHorario(c, h);
+                PermisoLaboral actual = repository.buscarPermisoPorId(c, p.getId())
+                        .orElseThrow(() -> new ValidacionException("El permiso seleccionado no existe."));
+                Validar.condicion(actual.getIdEmpleado() == p.getIdEmpleado(),
+                        "No se puede cambiar el empleado de un permiso ya registrado.");
+                repository.actualizarPermiso(c, p);
             }
         }
     }
 
-    public void eliminarHorario(int id) throws SQLException {
+    public void eliminarPermiso(int id) throws SQLException {
         try (Connection c = ConexionBD.obtener()) {
-            repository.eliminarHorario(c, id);
+            repository.eliminarPermiso(c, id);
         }
     }
 
-    /** Dos turnos se cruzan si uno empieza antes de que el otro termine. Turnos seguidos (8-12 y 12-17) no se cruzan. */
-    static boolean horariosSeCruzan(HorarioLaboral a, HorarioLaboral b) {
-        return a.getHoraInicio().isBefore(b.getHoraFin()) && b.getHoraInicio().isBefore(a.getHoraFin());
+    private void validarPermiso(PermisoLaboral p) throws ValidacionException {
+        Validar.condicion(p.getIdEmpleado() > 0, "Seleccione un empleado.");
+        Validar.requerido(p.getFechaInicio(), "Fecha de inicio");
+        Validar.requerido(p.getFechaFin(), "Fecha de fin");
+        Validar.condicion(!p.getFechaFin().isBefore(p.getFechaInicio()),
+                "La fecha de fin no puede ser anterior a la fecha de inicio.");
+        Validar.texto(p.getMotivo(), "Motivo");
+        Validar.condicion(p.getMotivo().length() <= 200, "El motivo no puede superar los 200 caracteres.");
+        Validar.condicion(p.getSoporte() == null || p.getSoporte().length() <= 255,
+                "El soporte no puede superar los 255 caracteres.");
+        Validar.requerido(p.getEstado(), "Estado");
     }
 }

@@ -2,8 +2,7 @@ package com.concesionario.rrhh.model;
 
 /**
  * CU-RH-05 Gestionar solicitud y aprobación de vacaciones.
- * Queda definido en la estructura, pero se implementa en una entrega posterior:
- * en esta entrega solo van los CRUD CU-RH-01, CU-RH-02 y CU-RH-03.
+ * Queda definido como marcador, pero su implementación está fuera de la Entrega 2.
  */
 public class SolicitudVacaciones {
 }

@@ -67,7 +67,11 @@ public final class Campos {
     }
 
     public static <E> E seleccion(JComboBox<E> combo, String nombre) throws ValidacionException {
-        E valor = combo.getItemAt(combo.getSelectedIndex());
+        int indice = combo.getSelectedIndex();
+        if (indice < 0) {
+            throw new ValidacionException("Seleccione un valor en \"" + nombre + "\".");
+        }
+        E valor = combo.getItemAt(indice);
         if (valor == null) {
             throw new ValidacionException("Seleccione un valor en \"" + nombre + "\".");
         }
