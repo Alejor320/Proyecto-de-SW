@@ -6,20 +6,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.concesionario.PruebaBase;
 import com.concesionario.comun.ValidacionException;
 import com.concesionario.rrhh.model.ContratoLaboral;
-import com.concesionario.rrhh.model.DiaSemana;
 import com.concesionario.rrhh.model.Empleado;
 import com.concesionario.rrhh.model.EstadoContrato;
 import com.concesionario.rrhh.model.EstadoEmpleado;
-import com.concesionario.rrhh.model.HorarioLaboral;
+import com.concesionario.rrhh.model.EstadoPermiso;
+import com.concesionario.rrhh.model.PermisoLaboral;
 import com.concesionario.rrhh.model.TipoContrato;
 import com.concesionario.rrhh.service.RecursosHumanosService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import org.junit.jupiter.api.Test;
 
-/** Pruebas de RecursosHumanosService: CU-RH-01, CU-RH-02 y CU-RH-03. */
+/** Pruebas de RecursosHumanosService: CU-RH-01, CU-RH-03 y CU-RH-04. */
 class RecursosHumanosServiceTest extends PruebaBase {
 
     private final RecursosHumanosService service = new RecursosHumanosService();
@@ -34,13 +33,14 @@ class RecursosHumanosServiceTest extends PruebaBase {
         return k;
     }
 
-    private HorarioLaboral horario(int idEmpleado, DiaSemana dia, String inicio, String fin) {
-        HorarioLaboral h = new HorarioLaboral();
-        h.setIdEmpleado(idEmpleado);
-        h.setDia(dia);
-        h.setHoraInicio(LocalTime.parse(inicio));
-        h.setHoraFin(LocalTime.parse(fin));
-        return h;
+    private PermisoLaboral permiso(int idEmpleado, LocalDate inicio, LocalDate fin) {
+        PermisoLaboral p = new PermisoLaboral();
+        p.setIdEmpleado(idEmpleado);
+        p.setFechaInicio(inicio);
+        p.setFechaFin(fin);
+        p.setMotivo("Cita médica");
+        p.setSoporte("soportes/cita-medica.pdf");
+        return p;
     }
 
     // ---------- CU-RH-01 Empleados ----------
@@ -132,36 +132,54 @@ class RecursosHumanosServiceTest extends PruebaBase {
                 contrato(e.getId(), TipoContrato.INDEFINIDO, LocalDate.of(2026, 1, 1), null)));
     }
 
-    // ---------- CU-RH-02 Horarios laborales ----------
+    // ---------- CU-RH-04 Permisos laborales ----------
 
     @Test
-    void permiteTurnosSeguidosElMismoDia() throws Exception {
+    void guardaActualizaYEliminaPermiso() throws Exception {
         Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
-        service.guardarHorario(horario(e.getId(), DiaSemana.LUNES, "08:00", "12:00"));
-        service.guardarHorario(horario(e.getId(), DiaSemana.LUNES, "12:00", "17:00"));
-        assertEquals(2, service.listarHorarios().size());
+        PermisoLaboral p = permiso(e.getId(), LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 20));
+        p.setEstado(EstadoPermiso.APROBADO); // todo permiso nuevo debe iniciar pendiente
+
+        service.guardarPermiso(p);
+        assertEquals(1, service.listarPermisos().size());
+        assertEquals(EstadoPermiso.PENDIENTE, service.listarPermisos().get(0).getEstado());
+        assertEquals("soportes/cita-medica.pdf", service.listarPermisos().get(0).getSoporte());
+
+        e.setEstado(EstadoEmpleado.INACTIVO);
+        service.guardarEmpleado(e);
+        p.setMotivo("Cita médica aprobada");
+        p.setEstado(EstadoPermiso.APROBADO);
+        service.guardarPermiso(p);
+        assertEquals("Cita médica aprobada", service.listarPermisos().get(0).getMotivo());
+        assertEquals(EstadoPermiso.APROBADO, service.listarPermisos().get(0).getEstado());
+
+        Empleado otro = crearEmpleado("1098765432", EstadoEmpleado.ACTIVO);
+        p.setIdEmpleado(otro.getId());
+        assertThrows(ValidacionException.class, () -> service.guardarPermiso(p));
+        p.setIdEmpleado(e.getId());
+
+        service.eliminarPermiso(p.getId());
+        assertEquals(0, service.listarPermisos().size());
     }
 
     @Test
-    void noPermiteTurnosQueSeCruzan() throws Exception {
+    void noPermiteFechaFinAnteriorAlInicioDelPermiso() throws Exception {
         Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
-        service.guardarHorario(horario(e.getId(), DiaSemana.MARTES, "08:00", "12:00"));
-        assertThrows(ValidacionException.class, () ->
-                service.guardarHorario(horario(e.getId(), DiaSemana.MARTES, "11:00", "15:00")));
+        assertThrows(ValidacionException.class, () -> service.guardarPermiso(
+                permiso(e.getId(), LocalDate.of(2026, 10, 21), LocalDate.of(2026, 10, 20))));
     }
 
     @Test
-    void permiteMismaHoraEnOtroDia() throws Exception {
-        Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
-        service.guardarHorario(horario(e.getId(), DiaSemana.MIERCOLES, "08:00", "17:00"));
-        service.guardarHorario(horario(e.getId(), DiaSemana.JUEVES, "08:00", "17:00"));
-        assertEquals(2, service.listarHorarios().size());
+    void noPermitePermisoParaEmpleadoInactivo() throws Exception {
+        Empleado e = crearEmpleado("1012345678", EstadoEmpleado.INACTIVO);
+        assertThrows(ValidacionException.class, () -> service.guardarPermiso(
+                permiso(e.getId(), LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 20))));
     }
 
     @Test
-    void noPermiteHoraFinAntesDeInicio() throws Exception {
+    void noEliminaEmpleadoConPermiso() throws Exception {
         Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
-        assertThrows(ValidacionException.class, () ->
-                service.guardarHorario(horario(e.getId(), DiaSemana.VIERNES, "17:00", "08:00")));
+        service.guardarPermiso(permiso(e.getId(), LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 21)));
+        assertThrows(ValidacionException.class, () -> service.eliminarEmpleado(e.getId()));
     }
 }

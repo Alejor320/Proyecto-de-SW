@@ -11,6 +11,6 @@ public class RecursosHumanosView extends JTabbedPane {
         RecursosHumanosController controller = new RecursosHumanosController();
         addTab("Empleados", new EmpleadoPanel(controller));
         addTab("Contratos laborales", new ContratoLaboralPanel(controller));
-        addTab("Horarios laborales", new HorarioLaboralPanel(controller));
+        addTab("Permisos laborales", new PermisoLaboralPanel(controller));
     }
 }

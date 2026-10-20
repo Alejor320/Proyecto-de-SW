@@ -3,7 +3,7 @@ package com.concesionario.rrhh.controller;
 import com.concesionario.comun.ValidacionException;
 import com.concesionario.rrhh.model.ContratoLaboral;
 import com.concesionario.rrhh.model.Empleado;
-import com.concesionario.rrhh.model.HorarioLaboral;
+import com.concesionario.rrhh.model.PermisoLaboral;
 import com.concesionario.rrhh.service.RecursosHumanosService;
 
 import java.sql.SQLException;
@@ -43,16 +43,16 @@ public class RecursosHumanosController {
         service.eliminarContrato(id);
     }
 
-    // CU-RH-02 Horarios laborales
-    public List<HorarioLaboral> listarHorarios() throws SQLException {
-        return service.listarHorarios();
+    // CU-RH-04 Permisos laborales
+    public List<PermisoLaboral> listarPermisos() throws SQLException {
+        return service.listarPermisos();
     }
 
-    public void guardarHorario(HorarioLaboral horario) throws SQLException, ValidacionException {
-        service.guardarHorario(horario);
+    public void guardarPermiso(PermisoLaboral permiso) throws SQLException, ValidacionException {
+        service.guardarPermiso(permiso);
     }
 
-    public void eliminarHorario(int id) throws SQLException {
-        service.eliminarHorario(id);
+    public void eliminarPermiso(int id) throws SQLException {
+        service.eliminarPermiso(id);
     }
 }

@@ -2,19 +2,22 @@
 
 Aplicación de escritorio en **Java 17 + Swing + H2** (Entrega 2).
 
-## Casos de uso implementados
+## Casos de uso implementados (6)
 
 | Área | Caso de uso | Responsable |
 |---|---|---|
 | Recursos Humanos | CU-RH-01 Gestionar ciclo laboral de empleados | Alejandro Ramírez |
-| Recursos Humanos | CU-RH-02 Gestionar asignación de horarios laborales | Alejandro Ramírez |
 | Recursos Humanos | CU-RH-03 Gestionar contratos laborales | Alejandro Ramírez |
+| Recursos Humanos | CU-RH-04 Gestionar permisos laborales | Alejandro Ramírez |
 | Mantenimiento y Flota | CU-MF-01 Gestionar órdenes de mantenimiento | Jaime Molina |
 | Mantenimiento y Flota | CU-MF-02 Gestionar repuestos de taller | Jaime Molina |
 | Mantenimiento y Flota | CU-MF-03 Gestionar técnicos de mantenimiento | Jaime Molina |
-| Apoyo | CU-AP-01 Registrar y consultar vehículos (versión mínima) | Jaime Molina |
 
-CU-RH-04 (permisos) y CU-RH-05 (vacaciones) ya tienen su clase en `rrhh/model`, pero se implementan en una entrega posterior.
+La pantalla **Vehículos (apoyo)** se conserva como dependencia técnica mínima para poder abrir órdenes de
+mantenimiento; no se contabiliza como un caso de uso del alcance evaluado de esta entrega.
+
+CU-RH-02 (horarios) y CU-RH-05 (vacaciones) quedan fuera de esta entrega. Sus clases en
+`rrhh/model` son únicamente marcadores para una entrega posterior y no tienen lógica, persistencia ni interfaz activa.
 
 ## Estructura (capas, como en el SDD)
 
@@ -25,7 +28,7 @@ src/main/java/com/concesionario/
 ├── comun/                       validaciones y pantalla base compartida
 │   └── view/                    FormularioCrud, Campos, VentanaPrincipal
 ├── rrhh/
-│   ├── model/                   Empleado, ContratoLaboral, HorarioLaboral, ...
+│   ├── model/                   Empleado, ContratoLaboral, PermisoLaboral, ...
 │   ├── view/                    RecursosHumanosView y una pantalla por caso de uso
 │   ├── controller/              RecursosHumanosController
 │   ├── service/                 RecursosHumanosService (reglas de negocio)
@@ -62,7 +65,7 @@ La base de datos se crea sola en la carpeta `data/`. Para empezar de cero, cierr
 ## Orden sugerido para la demostración
 
 1. Recursos Humanos → Empleados: crear 2 o 3 empleados.
-2. Contratos y Horarios: asignarles contrato y horario (probar un cruce de fechas u horas para ver la validación).
+2. Contratos y Permisos: asignarles un contrato y registrar un permiso con período, motivo, soporte y estado.
 3. Mantenimiento → Técnicos: convertir un empleado en técnico.
 4. Vehículos (apoyo): registrar un vehículo.
 5. Órdenes de mantenimiento: abrir una orden (el vehículo pasa a EN_MANTENIMIENTO) y luego cerrarla (vuelve a DISPONIBLE).

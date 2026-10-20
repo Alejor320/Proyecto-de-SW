@@ -1,11 +1,11 @@
 package com.concesionario.rrhh.repository;
 
 import com.concesionario.rrhh.model.ContratoLaboral;
-import com.concesionario.rrhh.model.DiaSemana;
 import com.concesionario.rrhh.model.Empleado;
 import com.concesionario.rrhh.model.EstadoContrato;
 import com.concesionario.rrhh.model.EstadoEmpleado;
-import com.concesionario.rrhh.model.HorarioLaboral;
+import com.concesionario.rrhh.model.EstadoPermiso;
+import com.concesionario.rrhh.model.PermisoLaboral;
 import com.concesionario.rrhh.model.TipoContrato;
 
 import java.sql.Connection;
@@ -14,13 +14,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Acceso a la base de datos de Recursos Humanos (tablas empleado, contrato_laboral y horario_laboral).
+ * Acceso a la base de datos de Recursos Humanos (tablas empleado, contrato_laboral y permiso_laboral).
  * Cada método recibe la conexión para que el servicio pueda agrupar varias operaciones en una transacción.
  */
 public class RecursosHumanosRepository {
@@ -83,12 +82,12 @@ public class RecursosHumanosRepository {
     }
 
     /**
-     * Cuenta contratos, horarios y registros de técnico asociados al empleado.
+     * Cuenta contratos, permisos y registros de técnico asociados al empleado.
      * Si hay alguno, el empleado no se puede borrar sin perder información.
      */
     public int contarRegistrosAsociados(Connection c, int idEmpleado) throws SQLException {
         String sql = "SELECT (SELECT COUNT(*) FROM contrato_laboral WHERE id_empleado = ?) "
-                + "+ (SELECT COUNT(*) FROM horario_laboral WHERE id_empleado = ?) "
+                + "+ (SELECT COUNT(*) FROM permiso_laboral WHERE id_empleado = ?) "
                 + "+ (SELECT COUNT(*) FROM tecnico WHERE id_empleado = ?)";
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setInt(1, idEmpleado);
@@ -200,73 +199,77 @@ public class RecursosHumanosRepository {
     }
 
     // =====================================================================
-    // CU-RH-02 Horarios laborales
+    // CU-RH-04 Permisos laborales
     // =====================================================================
 
-    private static final String SELECT_HORARIO = "SELECT h.*, e.nombres || ' ' || e.apellidos AS nombre_empleado "
-            + "FROM horario_laboral h JOIN empleado e ON e.id_empleado = h.id_empleado";
+    private static final String SELECT_PERMISO = "SELECT p.*, e.nombres || ' ' || e.apellidos AS nombre_empleado "
+            + "FROM permiso_laboral p JOIN empleado e ON e.id_empleado = p.id_empleado";
 
-    public void insertarHorario(Connection c, HorarioLaboral h) throws SQLException {
-        String sql = "INSERT INTO horario_laboral (id_empleado, dia, hora_inicio, hora_fin) VALUES (?, ?, ?, ?)";
+    public void insertarPermiso(Connection c, PermisoLaboral p) throws SQLException {
+        String sql = "INSERT INTO permiso_laboral (id_empleado, fecha_inicio, fecha_fin, motivo, soporte, estado) "
+                + "VALUES (?, ?, ?, ?, ?, ?)";
         try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            llenarHorario(ps, h);
+            llenarPermiso(ps, p);
             ps.executeUpdate();
-            h.setId(idGenerado(ps));
+            p.setId(idGenerado(ps));
         }
     }
 
-    public void actualizarHorario(Connection c, HorarioLaboral h) throws SQLException {
-        String sql = "UPDATE horario_laboral SET id_empleado = ?, dia = ?, hora_inicio = ?, hora_fin = ? WHERE id_horario = ?";
+    public void actualizarPermiso(Connection c, PermisoLaboral p) throws SQLException {
+        String sql = "UPDATE permiso_laboral SET id_empleado = ?, fecha_inicio = ?, fecha_fin = ?, motivo = ?, "
+                + "soporte = ?, estado = ? WHERE id_permiso = ?";
         try (PreparedStatement ps = c.prepareStatement(sql)) {
-            llenarHorario(ps, h);
-            ps.setInt(5, h.getId());
+            llenarPermiso(ps, p);
+            ps.setInt(7, p.getId());
             ps.executeUpdate();
         }
     }
 
-    public void eliminarHorario(Connection c, int id) throws SQLException {
-        eliminar(c, "DELETE FROM horario_laboral WHERE id_horario = ?", id);
+    public void eliminarPermiso(Connection c, int id) throws SQLException {
+        eliminar(c, "DELETE FROM permiso_laboral WHERE id_permiso = ?", id);
     }
 
-    public List<HorarioLaboral> listarHorarios(Connection c) throws SQLException {
-        String orden = " ORDER BY e.apellidos, e.nombres, CASE h.dia WHEN 'LUNES' THEN 1 WHEN 'MARTES' THEN 2 "
-                + "WHEN 'MIERCOLES' THEN 3 WHEN 'JUEVES' THEN 4 WHEN 'VIERNES' THEN 5 WHEN 'SABADO' THEN 6 ELSE 7 END, "
-                + "h.hora_inicio";
-        try (PreparedStatement ps = c.prepareStatement(SELECT_HORARIO + orden)) {
-            return listaHorarios(ps);
+    public Optional<PermisoLaboral> buscarPermisoPorId(Connection c, int id) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_PERMISO + " WHERE p.id_permiso = ?")) {
+            ps.setInt(1, id);
+            List<PermisoLaboral> permisos = listaPermisos(ps);
+            return permisos.isEmpty() ? Optional.empty() : Optional.of(permisos.get(0));
         }
     }
 
-    public List<HorarioLaboral> listarHorariosPorEmpleadoYDia(Connection c, int idEmpleado, DiaSemana dia) throws SQLException {
-        try (PreparedStatement ps = c.prepareStatement(SELECT_HORARIO + " WHERE h.id_empleado = ? AND h.dia = ?")) {
-            ps.setInt(1, idEmpleado);
-            ps.setString(2, dia.name());
-            return listaHorarios(ps);
+    public List<PermisoLaboral> listarPermisos(Connection c) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(
+                SELECT_PERMISO + " ORDER BY p.fecha_inicio DESC, p.id_permiso DESC")) {
+            return listaPermisos(ps);
         }
     }
 
-    private List<HorarioLaboral> listaHorarios(PreparedStatement ps) throws SQLException {
-        List<HorarioLaboral> lista = new ArrayList<>();
+    private List<PermisoLaboral> listaPermisos(PreparedStatement ps) throws SQLException {
+        List<PermisoLaboral> lista = new ArrayList<>();
         try (ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                HorarioLaboral h = new HorarioLaboral();
-                h.setId(rs.getInt("id_horario"));
-                h.setIdEmpleado(rs.getInt("id_empleado"));
-                h.setNombreEmpleado(rs.getString("nombre_empleado"));
-                h.setDia(DiaSemana.valueOf(rs.getString("dia")));
-                h.setHoraInicio(rs.getObject("hora_inicio", LocalTime.class));
-                h.setHoraFin(rs.getObject("hora_fin", LocalTime.class));
-                lista.add(h);
+                PermisoLaboral p = new PermisoLaboral();
+                p.setId(rs.getInt("id_permiso"));
+                p.setIdEmpleado(rs.getInt("id_empleado"));
+                p.setNombreEmpleado(rs.getString("nombre_empleado"));
+                p.setFechaInicio(rs.getObject("fecha_inicio", LocalDate.class));
+                p.setFechaFin(rs.getObject("fecha_fin", LocalDate.class));
+                p.setMotivo(rs.getString("motivo"));
+                p.setSoporte(rs.getString("soporte"));
+                p.setEstado(EstadoPermiso.valueOf(rs.getString("estado")));
+                lista.add(p);
             }
         }
         return lista;
     }
 
-    private void llenarHorario(PreparedStatement ps, HorarioLaboral h) throws SQLException {
-        ps.setInt(1, h.getIdEmpleado());
-        ps.setString(2, h.getDia().name());
-        ps.setObject(3, h.getHoraInicio());
-        ps.setObject(4, h.getHoraFin());
+    private void llenarPermiso(PreparedStatement ps, PermisoLaboral p) throws SQLException {
+        ps.setInt(1, p.getIdEmpleado());
+        ps.setObject(2, p.getFechaInicio());
+        ps.setObject(3, p.getFechaFin());
+        ps.setString(4, p.getMotivo());
+        ps.setString(5, p.getSoporte());
+        ps.setString(6, p.getEstado().name());
     }
 
     // =====================================================================
