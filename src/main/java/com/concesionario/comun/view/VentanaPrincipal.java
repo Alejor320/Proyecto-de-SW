@@ -38,7 +38,7 @@ public class VentanaPrincipal extends JFrame {
         if (actual instanceof JTabbedPane interna) {
             actual = interna.getSelectedComponent();
         }
-        if (actual instanceof FormularioCrud<?> formulario) {
+        if (actual instanceof Refrescable formulario) {
             formulario.refrescar();
         }
     }
