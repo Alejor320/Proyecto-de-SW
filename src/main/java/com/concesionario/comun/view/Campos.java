@@ -16,6 +16,13 @@ public final class Campos {
     private Campos() {
     }
 
+    /** Primera línea del error técnico; el resto (por ejemplo, la sentencia SQL) no le sirve al usuario. */
+    public static String detalleError(Exception ex) {
+        String mensaje = String.valueOf(ex.getMessage());
+        int salto = mensaje.indexOf('\n');
+        return salto < 0 ? mensaje : mensaje.substring(0, salto);
+    }
+
     public static String texto(JTextField campo) {
         return campo.getText().trim();
     }
