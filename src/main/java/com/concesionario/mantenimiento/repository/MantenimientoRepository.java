@@ -3,7 +3,9 @@ package com.concesionario.mantenimiento.repository;
 import com.concesionario.mantenimiento.model.EstadoOrden;
 import com.concesionario.mantenimiento.model.OrdenMantenimiento;
 import com.concesionario.mantenimiento.model.Prioridad;
+import com.concesionario.mantenimiento.model.RegistroHistorial;
 import com.concesionario.mantenimiento.model.Repuesto;
+import com.concesionario.mantenimiento.model.RepuestoOrden;
 import com.concesionario.mantenimiento.model.Tecnico;
 
 import java.sql.Connection;
@@ -11,13 +13,15 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Acceso a la base de datos de Mantenimiento y Flota (tablas tecnico, repuesto y orden_mantenimiento).
+ * Acceso a la base de datos de Mantenimiento y Flota (tablas tecnico, repuesto,
+ * orden_mantenimiento, orden_repuesto e historial_mantenimiento).
  * Cada método recibe la conexión para que el servicio pueda agrupar varias operaciones en una transacción.
  */
 public class MantenimientoRepository {
@@ -249,7 +253,208 @@ public class MantenimientoRepository {
         o.setKilometraje(rs.getInt("kilometraje"));
         o.setPrioridad(Prioridad.valueOf(rs.getString("prioridad")));
         o.setEstado(EstadoOrden.valueOf(rs.getString("estado")));
+        o.setDiagnostico(rs.getString("diagnostico"));
+        o.setHorasManoObra(rs.getBigDecimal("horas_mano_obra"));
+        o.setObservacionCalidad(rs.getString("observacion_calidad"));
         return o;
+    }
+
+    // =====================================================================
+    // CU-MF-05 Diagnosticar y reparar vehículo
+    // =====================================================================
+
+    public void actualizarDiagnostico(Connection c, int idOrden, String diagnostico, BigDecimal horas,
+                                      Prioridad prioridad, EstadoOrden estado) throws SQLException {
+        String sql = "UPDATE orden_mantenimiento SET diagnostico = ?, horas_mano_obra = ?, prioridad = ?, estado = ? "
+                + "WHERE id_orden = ?";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, diagnostico);
+            ps.setBigDecimal(2, horas);
+            ps.setString(3, prioridad.name());
+            ps.setString(4, estado.name());
+            ps.setInt(5, idOrden);
+            ps.executeUpdate();
+        }
+    }
+
+    public void actualizarEstadoOrden(Connection c, int idOrden, EstadoOrden estado, LocalDate fechaCierre,
+                                      String observacionCalidad) throws SQLException {
+        String sql = "UPDATE orden_mantenimiento SET estado = ?, fecha_cierre = ?, observacion_calidad = ? WHERE id_orden = ?";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, estado.name());
+            ps.setObject(2, fechaCierre);
+            ps.setString(3, observacionCalidad);
+            ps.setInt(4, idOrden);
+            ps.executeUpdate();
+        }
+    }
+
+    public Optional<Repuesto> buscarRepuestoPorId(Connection c, int id) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement("SELECT * FROM repuesto WHERE id_repuesto = ?")) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(mapearRepuesto(rs)) : Optional.empty();
+            }
+        }
+    }
+
+    /** Suma (o resta, si delta es negativo) unidades al inventario de un repuesto. */
+    public void ajustarCantidadRepuesto(Connection c, int idRepuesto, int delta) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement("UPDATE repuesto SET cantidad = cantidad + ? WHERE id_repuesto = ?")) {
+            ps.setInt(1, delta);
+            ps.setInt(2, idRepuesto);
+            ps.executeUpdate();
+        }
+    }
+
+    public int contarUsosDeRepuesto(Connection c, int idRepuesto) throws SQLException {
+        return contar(c, "SELECT COUNT(*) FROM orden_repuesto WHERE id_repuesto = ?", idRepuesto);
+    }
+
+    public int contarRepuestosDescontados(Connection c, int idOrden) throws SQLException {
+        return contar(c, "SELECT COUNT(*) FROM orden_repuesto WHERE id_orden = ? AND descontado = TRUE", idOrden);
+    }
+
+    public void insertarRepuestoOrden(Connection c, RepuestoOrden r) throws SQLException {
+        String sql = "INSERT INTO orden_repuesto (id_orden, id_repuesto, cantidad, descontado) VALUES (?, ?, ?, ?)";
+        try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setInt(1, r.getIdOrden());
+            ps.setInt(2, r.getIdRepuesto());
+            ps.setInt(3, r.getCantidad());
+            ps.setBoolean(4, r.isDescontado());
+            ps.executeUpdate();
+            r.setId(idGenerado(ps));
+        }
+    }
+
+    public void marcarRepuestosDescontados(Connection c, int idOrden) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement("UPDATE orden_repuesto SET descontado = TRUE WHERE id_orden = ?")) {
+            ps.setInt(1, idOrden);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Borra los repuestos de la orden que todavía no han salido del inventario. */
+    public void eliminarRepuestosPendientes(Connection c, int idOrden) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement("DELETE FROM orden_repuesto WHERE id_orden = ? AND descontado = FALSE")) {
+            ps.setInt(1, idOrden);
+            ps.executeUpdate();
+        }
+    }
+
+    public List<RepuestoOrden> listarRepuestosDeOrden(Connection c, int idOrden) throws SQLException {
+        String sql = "SELECT x.*, r.codigo, r.nombre, r.precio FROM orden_repuesto x "
+                + "JOIN repuesto r ON r.id_repuesto = x.id_repuesto WHERE x.id_orden = ? ORDER BY x.id_orden_repuesto";
+        List<RepuestoOrden> lista = new ArrayList<>();
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, idOrden);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    RepuestoOrden r = new RepuestoOrden();
+                    r.setId(rs.getInt("id_orden_repuesto"));
+                    r.setIdOrden(rs.getInt("id_orden"));
+                    r.setIdRepuesto(rs.getInt("id_repuesto"));
+                    r.setCodigo(rs.getString("codigo"));
+                    r.setNombreRepuesto(rs.getString("nombre"));
+                    r.setPrecioUnitario(rs.getBigDecimal("precio"));
+                    r.setCantidad(rs.getInt("cantidad"));
+                    r.setDescontado(rs.getBoolean("descontado"));
+                    lista.add(r);
+                }
+            }
+        }
+        return lista;
+    }
+
+    // =====================================================================
+    // CU-MF-04 Historial de mantenimiento del vehículo
+    // =====================================================================
+
+    private static final String SELECT_HISTORIAL = "SELECT h.*, v.placa FROM historial_mantenimiento h "
+            + "JOIN vehiculo v ON v.id_vehiculo = h.id_vehiculo";
+
+    public void insertarHistorial(Connection c, RegistroHistorial h) throws SQLException {
+        String sql = "INSERT INTO historial_mantenimiento (id_vehiculo, id_orden, fecha, kilometraje, descripcion, costo) "
+                + "VALUES (?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            llenarHistorial(ps, h);
+            ps.executeUpdate();
+            h.setId(idGenerado(ps));
+        }
+    }
+
+    public void actualizarHistorial(Connection c, RegistroHistorial h) throws SQLException {
+        String sql = "UPDATE historial_mantenimiento SET id_vehiculo = ?, id_orden = ?, fecha = ?, kilometraje = ?, "
+                + "descripcion = ?, costo = ? WHERE id_registro = ?";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            llenarHistorial(ps, h);
+            ps.setInt(7, h.getId());
+            ps.executeUpdate();
+        }
+    }
+
+    public void eliminarHistorial(Connection c, int id) throws SQLException {
+        eliminar(c, "DELETE FROM historial_mantenimiento WHERE id_registro = ?", id);
+    }
+
+    public Optional<RegistroHistorial> buscarHistorialPorId(Connection c, int id) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_HISTORIAL + " WHERE h.id_registro = ?")) {
+            ps.setInt(1, id);
+            List<RegistroHistorial> lista = listaHistorial(ps);
+            return lista.isEmpty() ? Optional.empty() : Optional.of(lista.get(0));
+        }
+    }
+
+    public List<RegistroHistorial> listarHistorial(Connection c) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_HISTORIAL + " ORDER BY v.placa, h.fecha DESC, h.id_registro DESC")) {
+            return listaHistorial(ps);
+        }
+    }
+
+    public List<RegistroHistorial> listarHistorialPorVehiculo(Connection c, int idVehiculo) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_HISTORIAL + " WHERE h.id_vehiculo = ? ORDER BY h.fecha DESC, h.id_registro DESC")) {
+            ps.setInt(1, idVehiculo);
+            return listaHistorial(ps);
+        }
+    }
+
+    private List<RegistroHistorial> listaHistorial(PreparedStatement ps) throws SQLException {
+        List<RegistroHistorial> lista = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                RegistroHistorial h = new RegistroHistorial();
+                h.setId(rs.getInt("id_registro"));
+                h.setIdVehiculo(rs.getInt("id_vehiculo"));
+                h.setPlaca(rs.getString("placa"));
+                int orden = rs.getInt("id_orden");
+                h.setIdOrden(rs.wasNull() ? null : orden);
+                h.setFecha(rs.getObject("fecha", LocalDate.class));
+                h.setKilometraje(rs.getInt("kilometraje"));
+                h.setDescripcion(rs.getString("descripcion"));
+                h.setCosto(rs.getBigDecimal("costo"));
+                lista.add(h);
+            }
+        }
+        return lista;
+    }
+
+    private void llenarHistorial(PreparedStatement ps, RegistroHistorial h) throws SQLException {
+        ps.setInt(1, h.getIdVehiculo());
+        ps.setObject(2, h.getIdOrden());
+        ps.setObject(3, h.getFecha());
+        ps.setInt(4, h.getKilometraje());
+        ps.setString(5, h.getDescripcion());
+        ps.setBigDecimal(6, h.getCosto());
+    }
+
+    private int contar(Connection c, String sql, int id) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
     }
 
     // =====================================================================
