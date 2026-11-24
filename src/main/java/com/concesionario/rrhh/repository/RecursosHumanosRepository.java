@@ -1,11 +1,15 @@
 package com.concesionario.rrhh.repository;
 
 import com.concesionario.rrhh.model.ContratoLaboral;
+import com.concesionario.rrhh.model.DiaSemana;
 import com.concesionario.rrhh.model.Empleado;
 import com.concesionario.rrhh.model.EstadoContrato;
 import com.concesionario.rrhh.model.EstadoEmpleado;
 import com.concesionario.rrhh.model.EstadoPermiso;
+import com.concesionario.rrhh.model.EstadoVacaciones;
+import com.concesionario.rrhh.model.HorarioLaboral;
 import com.concesionario.rrhh.model.PermisoLaboral;
+import com.concesionario.rrhh.model.SolicitudVacaciones;
 import com.concesionario.rrhh.model.TipoContrato;
 
 import java.sql.Connection;
@@ -14,12 +18,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Acceso a la base de datos de Recursos Humanos (tablas empleado, contrato_laboral y permiso_laboral).
+ * Acceso a la base de datos de Recursos Humanos (tablas empleado, contrato_laboral, horario_laboral,
+ * permiso_laboral y solicitud_vacaciones).
  * Cada método recibe la conexión para que el servicio pueda agrupar varias operaciones en una transacción.
  */
 public class RecursosHumanosRepository {
@@ -82,17 +88,19 @@ public class RecursosHumanosRepository {
     }
 
     /**
-     * Cuenta contratos, permisos y registros de técnico asociados al empleado.
+     * Cuenta contratos, permisos, horarios, vacaciones y registros de técnico asociados al empleado.
      * Si hay alguno, el empleado no se puede borrar sin perder información.
      */
     public int contarRegistrosAsociados(Connection c, int idEmpleado) throws SQLException {
         String sql = "SELECT (SELECT COUNT(*) FROM contrato_laboral WHERE id_empleado = ?) "
                 + "+ (SELECT COUNT(*) FROM permiso_laboral WHERE id_empleado = ?) "
+                + "+ (SELECT COUNT(*) FROM horario_laboral WHERE id_empleado = ?) "
+                + "+ (SELECT COUNT(*) FROM solicitud_vacaciones WHERE id_empleado = ? OR id_aprobador = ?) "
                 + "+ (SELECT COUNT(*) FROM tecnico WHERE id_empleado = ?)";
         try (PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setInt(1, idEmpleado);
-            ps.setInt(2, idEmpleado);
-            ps.setInt(3, idEmpleado);
+            for (int i = 1; i <= 6; i++) {
+                ps.setInt(i, idEmpleado);
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 return rs.getInt(1);
@@ -270,6 +278,195 @@ public class RecursosHumanosRepository {
         ps.setString(4, p.getMotivo());
         ps.setString(5, p.getSoporte());
         ps.setString(6, p.getEstado().name());
+    }
+
+    // =====================================================================
+    // CU-RH-02 Horarios laborales
+    // =====================================================================
+
+    private static final String SELECT_HORARIO = "SELECT h.*, e.nombres || ' ' || e.apellidos AS nombre_empleado "
+            + "FROM horario_laboral h JOIN empleado e ON e.id_empleado = h.id_empleado";
+
+    public void insertarHorario(Connection c, HorarioLaboral h) throws SQLException {
+        String sql = "INSERT INTO horario_laboral (id_empleado, dia, hora_inicio, hora_fin) VALUES (?, ?, ?, ?)";
+        try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            llenarHorario(ps, h);
+            ps.executeUpdate();
+            h.setId(idGenerado(ps));
+        }
+    }
+
+    public void actualizarHorario(Connection c, HorarioLaboral h) throws SQLException {
+        String sql = "UPDATE horario_laboral SET id_empleado = ?, dia = ?, hora_inicio = ?, hora_fin = ? WHERE id_horario = ?";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            llenarHorario(ps, h);
+            ps.setInt(5, h.getId());
+            ps.executeUpdate();
+        }
+    }
+
+    public void eliminarHorario(Connection c, int id) throws SQLException {
+        eliminar(c, "DELETE FROM horario_laboral WHERE id_horario = ?", id);
+    }
+
+    public List<HorarioLaboral> listarHorarios(Connection c) throws SQLException {
+        String orden = " ORDER BY e.apellidos, e.nombres, CASE h.dia WHEN 'LUNES' THEN 1 WHEN 'MARTES' THEN 2 "
+                + "WHEN 'MIERCOLES' THEN 3 WHEN 'JUEVES' THEN 4 WHEN 'VIERNES' THEN 5 WHEN 'SABADO' THEN 6 ELSE 7 END, "
+                + "h.hora_inicio";
+        try (PreparedStatement ps = c.prepareStatement(SELECT_HORARIO + orden)) {
+            return listaHorarios(ps);
+        }
+    }
+
+    public List<HorarioLaboral> listarHorariosPorEmpleado(Connection c, int idEmpleado) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_HORARIO + " WHERE h.id_empleado = ?")) {
+            ps.setInt(1, idEmpleado);
+            return listaHorarios(ps);
+        }
+    }
+
+    public List<HorarioLaboral> listarHorariosPorEmpleadoYDia(Connection c, int idEmpleado, DiaSemana dia) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_HORARIO + " WHERE h.id_empleado = ? AND h.dia = ?")) {
+            ps.setInt(1, idEmpleado);
+            ps.setString(2, dia.name());
+            return listaHorarios(ps);
+        }
+    }
+
+    private List<HorarioLaboral> listaHorarios(PreparedStatement ps) throws SQLException {
+        List<HorarioLaboral> lista = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                HorarioLaboral h = new HorarioLaboral();
+                h.setId(rs.getInt("id_horario"));
+                h.setIdEmpleado(rs.getInt("id_empleado"));
+                h.setNombreEmpleado(rs.getString("nombre_empleado"));
+                h.setDia(DiaSemana.valueOf(rs.getString("dia")));
+                h.setHoraInicio(rs.getObject("hora_inicio", LocalTime.class));
+                h.setHoraFin(rs.getObject("hora_fin", LocalTime.class));
+                lista.add(h);
+            }
+        }
+        return lista;
+    }
+
+    private void llenarHorario(PreparedStatement ps, HorarioLaboral h) throws SQLException {
+        ps.setInt(1, h.getIdEmpleado());
+        ps.setString(2, h.getDia().name());
+        ps.setObject(3, h.getHoraInicio());
+        ps.setObject(4, h.getHoraFin());
+    }
+
+    // =====================================================================
+    // CU-RH-05 Solicitudes de vacaciones
+    // =====================================================================
+
+    private static final String SELECT_VACACIONES = "SELECT v.*, e.nombres || ' ' || e.apellidos AS nombre_empleado, "
+            + "a.nombres || ' ' || a.apellidos AS nombre_aprobador "
+            + "FROM solicitud_vacaciones v JOIN empleado e ON e.id_empleado = v.id_empleado "
+            + "LEFT JOIN empleado a ON a.id_empleado = v.id_aprobador";
+
+    public void insertarSolicitud(Connection c, SolicitudVacaciones v) throws SQLException {
+        String sql = "INSERT INTO solicitud_vacaciones (id_empleado, fecha_inicio, fecha_fin, dias_habiles, observacion, "
+                + "estado, id_aprobador, fecha_decision, motivo_rechazo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            llenarSolicitud(ps, v);
+            ps.executeUpdate();
+            v.setId(idGenerado(ps));
+        }
+    }
+
+    public void actualizarSolicitud(Connection c, SolicitudVacaciones v) throws SQLException {
+        String sql = "UPDATE solicitud_vacaciones SET id_empleado = ?, fecha_inicio = ?, fecha_fin = ?, dias_habiles = ?, "
+                + "observacion = ?, estado = ?, id_aprobador = ?, fecha_decision = ?, motivo_rechazo = ? WHERE id_solicitud = ?";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            llenarSolicitud(ps, v);
+            ps.setInt(10, v.getId());
+            ps.executeUpdate();
+        }
+    }
+
+    public void eliminarSolicitud(Connection c, int id) throws SQLException {
+        eliminar(c, "DELETE FROM solicitud_vacaciones WHERE id_solicitud = ?", id);
+    }
+
+    public Optional<SolicitudVacaciones> buscarSolicitudPorId(Connection c, int id) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_VACACIONES + " WHERE v.id_solicitud = ?")) {
+            ps.setInt(1, id);
+            List<SolicitudVacaciones> lista = listaSolicitudes(ps);
+            return lista.isEmpty() ? Optional.empty() : Optional.of(lista.get(0));
+        }
+    }
+
+    public List<SolicitudVacaciones> listarSolicitudes(Connection c) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_VACACIONES + " ORDER BY v.fecha_inicio DESC, v.id_solicitud DESC")) {
+            return listaSolicitudes(ps);
+        }
+    }
+
+    public List<SolicitudVacaciones> listarSolicitudesPorEmpleado(Connection c, int idEmpleado) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_VACACIONES + " WHERE v.id_empleado = ?")) {
+            ps.setInt(1, idEmpleado);
+            return listaSolicitudes(ps);
+        }
+    }
+
+    /** Días hábiles de las solicitudes del empleado en el estado dado, sin contar la solicitud indicada. */
+    public int sumarDiasVacaciones(Connection c, int idEmpleado, EstadoVacaciones estado, int excluirId) throws SQLException {
+        String sql = "SELECT COALESCE(SUM(dias_habiles), 0) FROM solicitud_vacaciones "
+                + "WHERE id_empleado = ? AND estado = ? AND id_solicitud <> ?";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, idEmpleado);
+            ps.setString(2, estado.name());
+            ps.setInt(3, excluirId);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    public List<PermisoLaboral> listarPermisosPorEmpleado(Connection c, int idEmpleado) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SELECT_PERMISO + " WHERE p.id_empleado = ?")) {
+            ps.setInt(1, idEmpleado);
+            return listaPermisos(ps);
+        }
+    }
+
+    private List<SolicitudVacaciones> listaSolicitudes(PreparedStatement ps) throws SQLException {
+        List<SolicitudVacaciones> lista = new ArrayList<>();
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                SolicitudVacaciones v = new SolicitudVacaciones();
+                v.setId(rs.getInt("id_solicitud"));
+                v.setIdEmpleado(rs.getInt("id_empleado"));
+                v.setNombreEmpleado(rs.getString("nombre_empleado"));
+                v.setFechaInicio(rs.getObject("fecha_inicio", LocalDate.class));
+                v.setFechaFin(rs.getObject("fecha_fin", LocalDate.class));
+                v.setDiasHabiles(rs.getInt("dias_habiles"));
+                v.setObservacion(rs.getString("observacion"));
+                v.setEstado(EstadoVacaciones.valueOf(rs.getString("estado")));
+                int aprobador = rs.getInt("id_aprobador");
+                v.setIdAprobador(rs.wasNull() ? null : aprobador);
+                v.setNombreAprobador(rs.getString("nombre_aprobador"));
+                v.setFechaDecision(rs.getObject("fecha_decision", LocalDate.class));
+                v.setMotivoRechazo(rs.getString("motivo_rechazo"));
+                lista.add(v);
+            }
+        }
+        return lista;
+    }
+
+    private void llenarSolicitud(PreparedStatement ps, SolicitudVacaciones v) throws SQLException {
+        ps.setInt(1, v.getIdEmpleado());
+        ps.setObject(2, v.getFechaInicio());
+        ps.setObject(3, v.getFechaFin());
+        ps.setInt(4, v.getDiasHabiles());
+        ps.setString(5, v.getObservacion());
+        ps.setString(6, v.getEstado().name());
+        ps.setObject(7, v.getIdAprobador());
+        ps.setObject(8, v.getFechaDecision());
+        ps.setString(9, v.getMotivoRechazo());
     }
 
     // =====================================================================

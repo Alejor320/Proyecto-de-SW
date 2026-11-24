@@ -27,12 +27,13 @@ import javax.swing.table.DefaultTableModel;
  * Cada caso de uso solo define sus campos y qué hacer al guardar o eliminar,
  * así todas las pantallas se ven y se comportan igual.
  */
-public abstract class FormularioCrud<T> extends JPanel {
+public abstract class FormularioCrud<T> extends JPanel implements Refrescable {
 
     private final JPanel panelCampos = new JPanel(new GridBagLayout());
     private final DefaultTableModel modeloTabla;
     private final JTable tabla;
     private final JButton btnEliminar = new JButton("Eliminar");
+    private final JPanel botones = new JPanel(new FlowLayout(FlowLayout.LEFT));
     private final List<T> datos = new ArrayList<>();
     private int filaActual = 0;
 
@@ -71,7 +72,6 @@ public abstract class FormularioCrud<T> extends JPanel {
         btnGuardar.addActionListener(e -> accionGuardar());
         btnEliminar.addActionListener(e -> accionEliminar());
 
-        JPanel botones = new JPanel(new FlowLayout(FlowLayout.LEFT));
         botones.add(btnNuevo);
         botones.add(btnGuardar);
         botones.add(btnEliminar);
@@ -123,6 +123,50 @@ public abstract class FormularioCrud<T> extends JPanel {
 
     protected void ocultarEliminar() {
         btnEliminar.setVisible(false);
+    }
+
+    protected void cambiarTextoEliminar(String texto) {
+        btnEliminar.setText(texto);
+    }
+
+    /** Acción extra sobre el registro seleccionado (por ejemplo, Aprobar o Rechazar). */
+    @FunctionalInterface
+    protected interface AccionRegistro<R> {
+        void ejecutar(R registro) throws Exception;
+    }
+
+    /** Agrega un botón que ejecuta la acción sobre el registro seleccionado y luego recarga la tabla. */
+    protected void agregarAccion(String texto, String mensajeExito, AccionRegistro<T> accion) {
+        agregarAccion(texto, mensajeExito, null, accion);
+    }
+
+    /**
+     * Igual que la anterior, pero si la base de datos falla muestra {@code mensajeError}
+     * (por ejemplo, el mensaje que pide el caso de uso cuando se revierte una transacción).
+     */
+    protected void agregarAccion(String texto, String mensajeExito, String mensajeError, AccionRegistro<T> accion) {
+        JButton boton = new JButton(texto);
+        boton.addActionListener(e -> {
+            if (seleccionado == null) {
+                mostrarAdvertencia("Seleccione un registro de la tabla.");
+                return;
+            }
+            try {
+                accion.ejecutar(seleccionado);
+                refrescar();
+                JOptionPane.showMessageDialog(this, mensajeExito, "Listo", JOptionPane.INFORMATION_MESSAGE);
+            } catch (ValidacionException ex) {
+                mostrarAdvertencia(ex.getMessage());
+            } catch (Exception ex) {
+                if (mensajeError == null) {
+                    mostrarError(ex);
+                } else {
+                    JOptionPane.showMessageDialog(this, mensajeError + "\nDetalle: " + Campos.detalleError(ex),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+        botones.add(boton);
     }
 
     /** Vuelve a leer los datos de la base y actualiza la tabla. */
@@ -188,7 +232,7 @@ public abstract class FormularioCrud<T> extends JPanel {
 
     private void mostrarError(Exception ex) {
         JOptionPane.showMessageDialog(this,
-                "No fue posible completar la operación con la base de datos.\nDetalle: " + ex.getMessage(),
+                "No fue posible completar la operación con la base de datos.\nDetalle: " + Campos.detalleError(ex),
                 "Error", JOptionPane.ERROR_MESSAGE);
     }
 }

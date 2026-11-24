@@ -1,5 +1,6 @@
 package com.concesionario.mantenimiento.model;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /** CU-MF-01: orden de mantenimiento de un vehículo, asignada a un técnico. */
@@ -16,6 +17,9 @@ public class OrdenMantenimiento {
     private int kilometraje;
     private Prioridad prioridad;
     private EstadoOrden estado = EstadoOrden.ABIERTA;
+    private String diagnostico;
+    private BigDecimal horasManoObra = BigDecimal.ZERO;
+    private String observacionCalidad;
 
     public int getId() { return id; }
     public void setId(int id) { this.id = id; }
@@ -51,4 +55,21 @@ public class OrdenMantenimiento {
 
     public EstadoOrden getEstado() { return estado; }
     public void setEstado(EstadoOrden estado) { this.estado = estado; }
+
+    /** CU-MF-05: componentes evaluados y fallas encontradas; null mientras no se ha diagnosticado. */
+    public String getDiagnostico() { return diagnostico; }
+    public void setDiagnostico(String diagnostico) { this.diagnostico = diagnostico; }
+
+    /** CU-MF-05: horas de mano de obra estimadas para la reparación. */
+    public BigDecimal getHorasManoObra() { return horasManoObra; }
+    public void setHorasManoObra(BigDecimal horasManoObra) { this.horasManoObra = horasManoObra; }
+
+    /** CU-MF-05: observación del último control de calidad rechazado o de la declaración de irreparable. */
+    public String getObservacionCalidad() { return observacionCalidad; }
+    public void setObservacionCalidad(String observacionCalidad) { this.observacionCalidad = observacionCalidad; }
+
+    @Override
+    public String toString() {
+        return "N.º " + id + " - " + placa + " (" + estado + ")";
+    }
 }

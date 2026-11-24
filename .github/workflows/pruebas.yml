@@ -1,0 +1,54 @@
+# Corre las pruebas JUnit y mide la cobertura con JaCoCo en cada push y pull request.
+# El build falla si las clases de servicio no tienen 100 % de cobertura (regla en pom.xml).
+name: Pruebas y cobertura
+
+on:
+  push:
+    branches: [ main, develop, 'feature/**' ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Compilar, correr las pruebas y medir la cobertura
+        run: mvn -B verify
+
+      - name: Mostrar la cobertura de las clases de servicio
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import csv, os
+          ruta = 'target/site/jacoco/jacoco.csv'
+          if not os.path.exists(ruta):
+              print('No se generó el reporte de JaCoCo.')
+              raise SystemExit
+          def pct(f, m):
+              falta, cubre = int(f[m + '_MISSED']), int(f[m + '_COVERED'])
+              return f'{100 * cubre / (falta + cubre):.1f} %' if falta + cubre else '-'
+          print('### Cobertura de las clases de servicio (JaCoCo)')
+          print('| Clase | Instrucciones | Líneas | Ramas | Métodos |')
+          print('|---|---|---|---|---|')
+          for f in csv.DictReader(open(ruta, encoding='utf-8')):
+              if f['PACKAGE'].endswith('.service'):
+                  print(f"| {f['CLASS']} | {pct(f, 'INSTRUCTION')} | {pct(f, 'LINE')} | {pct(f, 'BRANCH')} | {pct(f, 'METHOD')} |")
+          PY
+
+      - name: Guardar el reporte de JaCoCo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-jacoco
+          path: target/site/jacoco/

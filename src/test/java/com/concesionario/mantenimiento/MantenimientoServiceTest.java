@@ -1,5 +1,6 @@
 package com.concesionario.mantenimiento;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -19,6 +20,8 @@ import com.concesionario.rrhh.model.EstadoEmpleado;
 
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
+import com.concesionario.apoyo.model.TipoVehiculo;
+import java.time.Year;
 
 /** Pruebas de MantenimientoService: CU-MF-01, CU-MF-02 y CU-MF-03. */
 class MantenimientoServiceTest extends PruebaBase {
@@ -171,5 +174,137 @@ class MantenimientoServiceTest extends PruebaBase {
 
         assertEquals(0, service.listarOrdenes().size());
         assertEquals(EstadoVehiculo.DISPONIBLE, estadoDe(v.getId()));
+    }
+
+    // ---------- Reglas y validaciones que faltaban para cubrir todo el servicio ----------
+
+    private Vehiculo vehiculo(String placa, TipoVehiculo tipo, int anio) {
+        Vehiculo v = new Vehiculo();
+        v.setPlaca(placa);
+        v.setMarca("Mazda");
+        v.setModelo("3");
+        v.setTipo(tipo);
+        v.setAnio(anio);
+        return v;
+    }
+
+    @Test
+    void validaLosDatosDelVehiculo() throws Exception {
+        crearVehiculo("ABC123");
+        Vehiculo yaRegistrado = vehiculo("XYZ987", TipoVehiculo.AUTOMOVIL, 2022);
+        yaRegistrado.setId(5);
+        int anioSiguiente = Year.now().getValue() + 2;
+        assertAll(
+                () -> assertThrows(ValidacionException.class, () -> service.registrarVehiculo(yaRegistrado)),
+                () -> assertThrows(ValidacionException.class, () -> service.registrarVehiculo(vehiculo("AB12", TipoVehiculo.AUTOMOVIL, 2022))),
+                () -> assertThrows(ValidacionException.class, () -> service.registrarVehiculo(vehiculo("ABC123", TipoVehiculo.MOTOCICLETA, 2022))),
+                () -> assertThrows(ValidacionException.class, () -> service.registrarVehiculo(vehiculo("XYZ987", TipoVehiculo.AUTOMOVIL, 1949))),
+                () -> assertThrows(ValidacionException.class, () -> service.registrarVehiculo(vehiculo("XYZ987", TipoVehiculo.AUTOMOVIL, anioSiguiente))),
+                () -> assertThrows(ValidacionException.class, () -> service.registrarVehiculo(vehiculo("abc-123", TipoVehiculo.AUTOMOVIL, 2022))));
+        service.registrarVehiculo(vehiculo("xyz 45b", TipoVehiculo.MOTOCICLETA, 2024));
+        assertEquals(2, service.listarVehiculos().size());
+    }
+
+    @Test
+    void actualizaYEliminaTecnicos() throws Exception {
+        Tecnico t = crearTecnico("1012345678", true);
+        t.setEspecialidad("Frenos");
+        service.guardarTecnico(t);   // es el mismo técnico, no un duplicado
+        assertEquals("Frenos", service.listarTecnicos().get(0).getEspecialidad());
+
+        Tecnico sinEmpleado = new Tecnico();
+        sinEmpleado.setEspecialidad("Motor");
+        Tecnico empleadoInexistente = new Tecnico();
+        empleadoInexistente.setIdEmpleado(999);
+        empleadoInexistente.setEspecialidad("Motor");
+        assertAll(
+                () -> assertThrows(ValidacionException.class, () -> service.guardarTecnico(sinEmpleado)),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarTecnico(empleadoInexistente)));
+
+        Vehiculo v = crearVehiculo("ABC123");
+        service.guardarOrden(orden(v.getId(), t.getId()));
+        Tecnico libre = crearTecnico("1098765432", false);
+        assertEquals(1, service.listarTecnicosDisponibles().size());
+        assertThrows(ValidacionException.class, () -> service.eliminarTecnico(t.getId()));
+        service.eliminarTecnico(libre.getId());
+        assertEquals(1, service.listarTecnicos().size());
+    }
+
+    @Test
+    void validaActualizaYEliminaRepuestos() throws Exception {
+        Repuesto r = repuesto("FIL-001", 10, 3, "35000");
+        service.guardarRepuesto(r);
+        r.setCantidad(20);
+        service.guardarRepuesto(r);   // mismo código, mismo repuesto
+        assertEquals(20, service.listarRepuestos().get(0).getCantidad());
+
+        Repuesto minimoNegativo = repuesto("ACE-020", 5, -1, "25000");
+        Repuesto sinPrecio = repuesto("ACE-021", 5, 1, "25000");
+        sinPrecio.setPrecio(null);
+        assertAll(
+                () -> assertThrows(ValidacionException.class, () -> service.guardarRepuesto(minimoNegativo)),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarRepuesto(sinPrecio)));
+
+        service.eliminarRepuesto(r.getId());
+        assertEquals(0, service.listarRepuestos().size());
+    }
+
+    @Test
+    void validaLosDatosDeLaOrden() throws Exception {
+        Vehiculo v = crearVehiculo("ABC123");
+        Tecnico t = crearTecnico("1012345678", true);
+        OrdenMantenimiento motivoLargo = orden(v.getId(), t.getId());
+        motivoLargo.setMotivo("x".repeat(201));
+        OrdenMantenimiento kmNegativo = orden(v.getId(), t.getId());
+        kmNegativo.setKilometraje(-1);
+        OrdenMantenimiento inexistente = orden(v.getId(), t.getId());
+        inexistente.setId(999);
+        inexistente.setEstado(EstadoOrden.ABIERTA);
+        assertAll(
+                () -> assertThrows(ValidacionException.class, () -> service.guardarOrden(orden(0, t.getId()))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarOrden(orden(v.getId(), 0))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarOrden(motivoLargo)),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarOrden(kmNegativo)),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarOrden(orden(999, t.getId()))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarOrden(orden(v.getId(), 999))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarOrden(inexistente)),
+                () -> assertThrows(ValidacionException.class, () -> service.eliminarOrden(999)));
+        assertEquals(EstadoVehiculo.DISPONIBLE, estadoDe(v.getId()));
+    }
+
+    @Test
+    void modificaUnaOrdenSinSaltarseElDiagnostico() throws Exception {
+        Vehiculo v = crearVehiculo("ABC123");
+        Tecnico t1 = crearTecnico("1012345678", true);
+        Tecnico t2 = crearTecnico("1098765432", true);
+        service.guardarOrden(orden(v.getId(), t1.getId()));
+        OrdenMantenimiento o = service.listarOrdenes().get(0);
+
+        o.setIdTecnico(t2.getId());
+        o.setMotivo("Ruido en la suspensión");
+        service.guardarOrden(o);
+        assertEquals(t2.getId(), service.listarOrdenes().get(0).getIdTecnico());
+
+        o.setEstado(EstadoOrden.EN_PROCESO);
+        assertThrows(ValidacionException.class, () -> service.guardarOrden(o));
+        o.setEstado(EstadoOrden.PENDIENTE_REPUESTO);
+        assertThrows(ValidacionException.class, () -> service.guardarOrden(o));
+        assertEquals(EstadoOrden.ABIERTA, service.listarOrdenes().get(0).getEstado());
+    }
+
+    @Test
+    void listaSoloLasOrdenesQueNoEstanCerradas() throws Exception {
+        Vehiculo v1 = crearVehiculo("ABC123");
+        Vehiculo v2 = crearVehiculo("DEF456");
+        Tecnico t = crearTecnico("1012345678", true);
+        service.guardarOrden(orden(v1.getId(), t.getId()));
+        service.guardarOrden(orden(v2.getId(), t.getId()));
+        OrdenMantenimiento primera = service.listarOrdenes().stream()
+                .filter(o -> o.getIdVehiculo() == v1.getId()).findFirst().orElseThrow();
+        primera.setEstado(EstadoOrden.CERRADA);
+        service.guardarOrden(primera);
+
+        assertEquals(1, service.listarOrdenesActivas().size());
+        assertThrows(ValidacionException.class, () -> service.eliminarOrden(primera.getId()));
     }
 }

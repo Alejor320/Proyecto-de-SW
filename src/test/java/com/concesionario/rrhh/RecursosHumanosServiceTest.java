@@ -1,5 +1,6 @@
 package com.concesionario.rrhh;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -181,5 +182,97 @@ class RecursosHumanosServiceTest extends PruebaBase {
         Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
         service.guardarPermiso(permiso(e.getId(), LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 21)));
         assertThrows(ValidacionException.class, () -> service.eliminarEmpleado(e.getId()));
+    }
+
+    // ---------- Reglas y validaciones que faltaban para cubrir todo el servicio ----------
+
+    private Empleado empleado(String documento, String telefono, String correo) {
+        Empleado e = new Empleado();
+        e.setDocumento(documento);
+        e.setNombres("Ana");
+        e.setApellidos("Pérez");
+        e.setCargo("Asesora");
+        e.setTelefono(telefono);
+        e.setCorreo(correo);
+        e.setFechaIngreso(LocalDate.of(2024, 1, 15));
+        return e;
+    }
+
+    @Test
+    void rechazaDocumentoTelefonoYCorreoInvalidos() {
+        assertAll(
+                () -> assertThrows(ValidacionException.class, () -> service.guardarEmpleado(empleado("", null, null))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarEmpleado(empleado("12AB45", null, null))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarEmpleado(empleado("1012345678", "12", null))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarEmpleado(empleado("1012345678", "", "sin-arroba"))));
+    }
+
+    @Test
+    void actualizaLosDatosDeUnEmpleado() throws Exception {
+        Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
+        e.setTelefono("3001234567");
+        e.setCorreo("ana@concesionario.com");
+        e.setCargo("Jefe de taller");
+        service.guardarEmpleado(e);
+        assertEquals(1, service.listarEmpleados().size());
+        assertEquals("Jefe de taller", service.listarEmpleados().get(0).getCargo());
+    }
+
+    @Test
+    void rechazaContratosConDatosIncompletos() throws Exception {
+        Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
+        ContratoLaboral sinSalario = contrato(e.getId(), TipoContrato.INDEFINIDO, LocalDate.of(2026, 1, 1), null);
+        sinSalario.setSalario(null);
+        ContratoLaboral salarioCero = contrato(e.getId(), TipoContrato.INDEFINIDO, LocalDate.of(2026, 1, 1), null);
+        salarioCero.setSalario(BigDecimal.ZERO);
+        assertAll(
+                () -> assertThrows(ValidacionException.class, () -> service.guardarContrato(
+                        contrato(0, TipoContrato.INDEFINIDO, LocalDate.of(2026, 1, 1), null))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarContrato(
+                        contrato(999, TipoContrato.INDEFINIDO, LocalDate.of(2026, 1, 1), null))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarContrato(sinSalario)),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarContrato(salarioCero)));
+    }
+
+    @Test
+    void actualizaYEliminaContratos() throws Exception {
+        Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
+        ContratoLaboral anterior = contrato(e.getId(), TipoContrato.TERMINO_FIJO, LocalDate.of(2023, 1, 1), LocalDate.of(2023, 12, 31));
+        service.guardarContrato(anterior);
+        ContratoLaboral actual = contrato(e.getId(), TipoContrato.INDEFINIDO, LocalDate.of(2025, 1, 1), null);
+        service.guardarContrato(actual);   // los dos quedan vigentes porque no se cruzan
+
+        actual.setFechaFin(LocalDate.of(2027, 12, 31));   // un indefinido también puede tener fecha de fin
+        actual.setSalario(new BigDecimal("3000000"));
+        service.guardarContrato(actual);
+        service.guardarContrato(contrato(e.getId(), TipoContrato.TERMINO_FIJO, LocalDate.of(2021, 1, 1), LocalDate.of(2021, 12, 31)));
+        assertEquals(3, service.listarContratos().size());
+
+        service.eliminarContrato(anterior.getId());
+        assertEquals(2, service.listarContratos().size());
+    }
+
+    @Test
+    void rechazaPermisosConDatosInvalidos() throws Exception {
+        Empleado e = crearEmpleado("1012345678", EstadoEmpleado.ACTIVO);
+        LocalDate dia = LocalDate.of(2026, 10, 20);
+        PermisoLaboral motivoLargo = permiso(e.getId(), dia, dia);
+        motivoLargo.setMotivo("x".repeat(201));
+        PermisoLaboral soporteLargo = permiso(e.getId(), dia, dia);
+        soporteLargo.setSoporte("x".repeat(256));
+        PermisoLaboral inexistente = permiso(e.getId(), dia, dia);
+        inexistente.setId(999);
+        inexistente.setEstado(EstadoPermiso.PENDIENTE);
+        assertAll(
+                () -> assertThrows(ValidacionException.class, () -> service.guardarPermiso(permiso(0, dia, dia))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarPermiso(permiso(999, dia, dia))),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarPermiso(motivoLargo)),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarPermiso(soporteLargo)),
+                () -> assertThrows(ValidacionException.class, () -> service.guardarPermiso(inexistente)));
+
+        PermisoLaboral sinSoporte = permiso(e.getId(), dia, dia);
+        sinSoporte.setSoporte(null);   // el soporte es opcional
+        service.guardarPermiso(sinSoporte);
+        assertEquals(1, service.listarPermisos().size());
     }
 }
