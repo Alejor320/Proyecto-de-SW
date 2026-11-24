@@ -3,12 +3,16 @@ package com.concesionario.mantenimiento.controller;
 import com.concesionario.apoyo.model.Vehiculo;
 import com.concesionario.comun.ValidacionException;
 import com.concesionario.mantenimiento.model.OrdenMantenimiento;
+import com.concesionario.mantenimiento.model.RegistroHistorial;
 import com.concesionario.mantenimiento.model.Repuesto;
+import com.concesionario.mantenimiento.model.RepuestoOrden;
+import com.concesionario.mantenimiento.model.ResultadoDiagnostico;
 import com.concesionario.mantenimiento.model.Tecnico;
 import com.concesionario.mantenimiento.service.MantenimientoService;
 import com.concesionario.rrhh.model.Empleado;
 import com.concesionario.rrhh.service.RecursosHumanosService;
 
+import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.util.List;
 
@@ -43,7 +47,7 @@ public class MantenimientoController {
         service.guardarRepuesto(repuesto);
     }
 
-    public void eliminarRepuesto(int id) throws SQLException {
+    public void eliminarRepuesto(int id) throws SQLException, ValidacionException {
         service.eliminarRepuesto(id);
     }
 
@@ -72,5 +76,53 @@ public class MantenimientoController {
 
     public void registrarVehiculo(Vehiculo vehiculo) throws SQLException, ValidacionException {
         service.registrarVehiculo(vehiculo);
+    }
+
+    // CU-MF-04 Historial de mantenimiento
+    public List<RegistroHistorial> listarHistorial() throws SQLException {
+        return service.listarHistorial();
+    }
+
+    public List<RegistroHistorial> listarHistorialDeVehiculo(int idVehiculo) throws SQLException {
+        return service.listarHistorialDeVehiculo(idVehiculo);
+    }
+
+    public void guardarRegistroHistorial(RegistroHistorial registro) throws SQLException, ValidacionException {
+        service.guardarRegistroHistorial(registro);
+    }
+
+    public void eliminarRegistroHistorial(int id) throws SQLException, ValidacionException {
+        service.eliminarRegistroHistorial(id);
+    }
+
+    // CU-MF-05 Diagnosticar y reparar vehículo
+    public List<OrdenMantenimiento> listarOrdenesActivas() throws SQLException {
+        return service.listarOrdenesActivas();
+    }
+
+    public List<RepuestoOrden> listarRepuestosDeOrden(int idOrden) throws SQLException {
+        return service.listarRepuestosDeOrden(idOrden);
+    }
+
+    public ResultadoDiagnostico registrarDiagnostico(int idOrden, String diagnostico, boolean danoSevero,
+                                                     BigDecimal horasManoObra, List<RepuestoOrden> repuestos)
+            throws SQLException, ValidacionException {
+        return service.registrarDiagnostico(idOrden, diagnostico, danoSevero, horasManoObra, repuestos);
+    }
+
+    public ResultadoDiagnostico reintentarRepuestos(int idOrden) throws SQLException, ValidacionException {
+        return service.reintentarRepuestos(idOrden);
+    }
+
+    public void aprobarControlCalidad(int idOrden) throws SQLException, ValidacionException {
+        service.aprobarControlCalidad(idOrden);
+    }
+
+    public void rechazarControlCalidad(int idOrden, String observacion) throws SQLException, ValidacionException {
+        service.rechazarControlCalidad(idOrden, observacion);
+    }
+
+    public void declararIrreparable(int idOrden, String observacion) throws SQLException, ValidacionException {
+        service.declararIrreparable(idOrden, observacion);
     }
 }

@@ -34,4 +34,9 @@ public class Repuesto {
     public boolean requiereReabastecimiento() {
         return cantidad <= stockMinimo;
     }
+
+    @Override
+    public String toString() {
+        return codigo + " - " + nombre + " (" + cantidad + " disponibles)";
+    }
 }
